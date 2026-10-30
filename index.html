@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zebrafish Brain Explorer</title>
+  <meta name="description" content="Research explorer for the mapZebrain larval zebrafish brain atlas: orthogonal slice viewer, 3D viewer, region/marker/neuron catalogs and connectivity.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><path d="M3 16c4-7 11-9 18-6l6-4-1.5 7L27 20l-6-3c-7 3-14 1-18-1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="20.5" cy="13.5" r="1.4" fill="currentColor"/></svg>
+      <div><b>Zebrafish Brain Explorer</b><span>larval atlas · 6 dpf · data from mapZebrain</span></div>
+    </div>
+    <nav class="tabs" id="tabs">
+      <a href="#explorer" data-tab="explorer">Explorer</a>
+      <a href="#regions" data-tab="regions">Regions</a>
+      <a href="#markers" data-tab="markers">Markers</a>
+      <a href="#neurons" data-tab="neurons">Neurons</a>
+      <a href="#connectivity" data-tab="connectivity">Connectivity</a>
+      <a href="#overview" data-tab="overview">Overview</a>
+      <a href="#about" data-tab="about">About &amp; data</a>
+    </nav>
+    <div class="topbar-right">
+      <span id="data-status" class="status-pill" title="Data source">loading…</span>
+      <button id="theme-toggle" class="icon-btn" title="Toggle light/dark theme" aria-label="Toggle theme">◐</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- ================= EXPLORER ================= -->
+    <section id="page-explorer" class="page">
+      <aside class="sidebar left">
+        <div class="search-box">
+          <input id="global-search" type="search" placeholder="Search regions, markers, neurons…" autocomplete="off">
+          <div id="search-results" class="search-results" hidden></div>
+        </div>
+
+        <div class="side-section">
+          <div class="side-head"><h3>Layers</h3><button class="link-btn" id="clear-all">Clear all</button></div>
+          <div class="layer-row base">
+            <label><input type="checkbox" id="base-visible" checked> Reference brain</label>
+            <input type="range" id="base-gain" min="0.3" max="3" step="0.05" value="1.2" title="Brightness">
+          </div>
+          <div class="quick-add">
+            <button class="chip" data-quick="major-regions">+ Major divisions</button>
+            <button class="chip" data-quick="sample-neurons">+ 25 random neurons</button>
+            <button class="chip" data-quick="mitral">+ Mitral cells</button>
+          </div>
+          <div id="layer-groups"></div>
+        </div>
+      </aside>
+
+      <div class="viewer-area">
+        <div class="viewer-toolbar">
+          <div class="seg" id="layout-seg">
+            <button data-layout="split" class="on">Slices + 3D</button>
+            <button data-layout="slices">Slices</button>
+            <button data-layout="3d">3D</button>
+          </div>
+          <div class="toolbar-group">
+            <label class="tb-label">Regions</label>
+            <div class="seg small" id="region-style-seg">
+              <button data-style="fill" class="on">Fill</button>
+              <button data-style="outline">Outline</button>
+              <button data-style="both">Both</button>
+            </div>
+          </div>
+          <div class="toolbar-group">
+            <label class="tb-label" title="Neuron segments within this distance of the slice are drawn bright">Neuron slab</label>
+            <input type="range" id="slab" min="2" max="60" value="12" step="1">
+            <span id="slab-val" class="mono">±12 µm</span>
+            <label class="tb-check"><input type="checkbox" id="neuron-ghost" checked> show full projection faintly</label>
+          </div>
+          <div class="toolbar-group right">
+            <label class="tb-check"><input type="checkbox" id="crosshair-on" checked> crosshair</label>
+            <button class="btn ghost" id="reset-views" title="Reset zoom & pan">Reset view</button>
+          </div>
+        </div>
+
+        <div class="viewer-grid layout-split" id="viewer-grid">
+          <div class="pane slice-pane" id="pane-dorsal" data-view="dorsal"></div>
+          <div class="pane slice-pane" id="pane-sagittal" data-view="sagittal"></div>
+          <div class="pane slice-pane" id="pane-coronal" data-view="coronal"></div>
+          <div class="pane three-pane" id="pane-3d"></div>
+        </div>
+
+        <div class="cursor-bar">
+          <span>Cursor <b class="mono" id="cursor-xyz">x –, y –, z –</b> µm</span>
+          <span id="hover-info" class="muted"></span>
+          <span class="muted hint">Click a slice to move the crosshair · wheel = step slices · ctrl/⌘+wheel or pinch = zoom · drag = pan · press <kbd>R</kbd> to identify regions at cursor</span>
+        </div>
+      </div>
+
+      <aside class="sidebar right" id="inspector">
+        <div class="side-section">
+          <div class="side-head"><h3>At cursor</h3><button class="btn small" id="identify-btn">Identify regions</button></div>
+          <div id="regions-at-point" class="muted small">Click a slice, then “Identify regions” (or press R).</div>
+        </div>
+        <div class="side-section grow">
+          <div class="side-head"><h3>Details</h3></div>
+          <div id="detail-panel" class="detail muted small">Select a region, marker or neuron to see its details here.</div>
+        </div>
+      </aside>
+    </section>
+
+    <!-- ================= REGIONS ================= -->
+    <section id="page-regions" class="page catalog">
+      <div class="catalog-head">
+        <div>
+          <h1>Brain regions</h1>
+          <p class="lede">Expert-annotated, hierarchical segmentation of the 6 dpf larval brain. Version 2.0 is mutually exclusive and collectively exhaustive (MECE): every voxel belongs to exactly one leaf region.</p>
+        </div>
+        <div class="filters">
+          <select id="region-version"></select>
+          <input id="region-filter" type="search" placeholder="Filter regions…">
+          <button class="btn ghost" id="region-expand">Expand all</button>
+          <button class="btn ghost" id="region-collapse">Collapse</button>
+        </div>
+      </div>
+      <div class="catalog-body two-col">
+        <div class="card tree-card"><div id="region-tree" class="tree"></div></div>
+        <div class="card" id="region-detail"><p class="muted">Pick a region from the tree.</p></div>
+      </div>
+    </section>
+
+    <!-- ================= MARKERS ================= -->
+    <section id="page-markers" class="page catalog">
+      <div class="catalog-head">
+        <div>
+          <h1>Markers &amp; transgenic lines</h1>
+          <p class="lede">Registered expression patterns: transgenic lines, HCR in situ gene expression, antibody stains and cfos activity maps, each averaged across fish and aligned to the reference brain.</p>
+        </div>
+        <div class="filters">
+          <input id="marker-filter" type="search" placeholder="Name, gene, synonym…">
+          <select id="marker-category"><option value="">All categories</option></select>
+          <select id="marker-lab"><option value="">All labs</option></select>
+          <label class="tb-check"><input type="checkbox" id="marker-has-neurons"> with traced neurons</label>
+        </div>
+      </div>
+      <div class="catalog-body two-col wide-left">
+        <div class="card table-card">
+          <div class="table-meta" id="marker-count"></div>
+          <div class="table-wrap"><table class="data-table" id="marker-table"></table></div>
+        </div>
+        <div class="card" id="marker-detail"><p class="muted">Pick a marker from the table.</p></div>
+      </div>
+    </section>
+
+    <!-- ================= NEURONS ================= -->
+    <section id="page-neurons" class="page catalog">
+      <div class="catalog-head">
+        <div>
+          <h1>Single-neuron morphologies</h1>
+          <p class="lede">Sparsely labelled neurons, traced and registered to the reference brain. Filter, select many at once, and send them to the viewers.</p>
+        </div>
+        <div class="filters">
+          <input id="neuron-filter" type="search" placeholder="ID, name…">
+          <select id="neuron-celltype"><option value="">All cell types</option></select>
+          <select id="neuron-marker"><option value="">All markers</option></select>
+          <select id="neuron-lab"><option value="">All labs</option></select>
+          <select id="neuron-region"><option value="">Any region</option></select>
+          <select id="neuron-region-mode">
+            <option value="soma">soma in</option>
+            <option value="terminate">terminates in</option>
+            <option value="pass">passes through</option>
+          </select>
+        </div>
+      </div>
+      <div class="catalog-body two-col wide-left">
+        <div class="card table-card">
+          <div class="table-meta">
+            <span id="neuron-count"></span>
+            <span class="spacer"></span>
+            <button class="btn small" id="neuron-show-filtered">Show filtered in viewer (max 300)</button>
+            <button class="btn small ghost" id="neuron-download-ids">Download ID list</button>
+          </div>
+          <div class="table-wrap"><table class="data-table" id="neuron-table"></table></div>
+        </div>
+        <div class="card" id="neuron-detail"><p class="muted">Pick a neuron to preview its morphology.</p></div>
+      </div>
+    </section>
+
+    <!-- ================= CONNECTIVITY ================= -->
+    <section id="page-connectivity" class="page catalog">
+      <div class="catalog-head">
+        <div>
+          <h1>Region-to-region connectivity</h1>
+          <p class="lede">Each cell counts traced neurons whose <b>cell body</b> lies in the row region and that <b>terminate</b> in the column region (min. 10 µm of arbor in region, mapZebrain criteria). This is a projection map built from single-cell morphologies, not synapse-level connectivity.</p>
+        </div>
+        <div class="filters">
+          <select id="conn-level">
+            <option value="leaf">Leaf regions</option>
+            <option value="mid">Mid-level regions</option>
+            <option value="top">Major divisions</option>
+          </select>
+          <select id="conn-target-mode">
+            <option value="terminate">soma → terminates</option>
+            <option value="pass">soma → passes through</option>
+          </select>
+          <label class="tb-check"><input type="checkbox" id="conn-hide-empty" checked> hide empty rows/cols</label>
+          <label class="tb-check"><input type="checkbox" id="conn-log" checked> log colour scale</label>
+        </div>
+      </div>
+      <div class="catalog-body two-col wide-left">
+        <div class="card"><div id="conn-matrix" class="conn-wrap"></div></div>
+        <div class="card" id="conn-detail"><p class="muted">Hover a cell for counts; click to list the neurons and send them to the viewer.</p></div>
+      </div>
+    </section>
+
+    <!-- ================= OVERVIEW ================= -->
+    <section id="page-overview" class="page catalog">
+      <div class="catalog-head"><div><h1>Atlas at a glance</h1><p class="lede">What the atlas contains, and where its data comes from.</p></div></div>
+      <div class="kpis" id="kpis"></div>
+      <div class="chart-grid" id="charts"></div>
+    </section>
+
+    <!-- ================= ABOUT ================= -->
+    <section id="page-about" class="page catalog">
+      <div class="prose" id="about-content"></div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+  <div id="tooltip" class="tooltip" hidden></div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
